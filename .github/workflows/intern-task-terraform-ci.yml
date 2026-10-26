@@ -4,15 +4,29 @@ on:
   pull_request:
     paths:
       - "intern-task-terraform/**"
+      # The module embeds the app's Dockerfile and reads its port.
+      - "intern-task-app/**"
+      # Otherwise a change to this pipeline alone never runs it.
+      - ".github/workflows/intern-task-terraform-ci.yml"
   push:
     branches: [main]
     paths:
       - "intern-task-terraform/**"
+      - "intern-task-app/**"
+      - ".github/workflows/intern-task-terraform-ci.yml"
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   validate:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        # The module lives here. At the repo root there are no .tf files:
+        # validate passes on the empty config and plan fails.
+        working-directory: intern-task-terraform/terraform
     env:
       # Fake, not secret — these never touch a real AWS account. They only
       # work because the module's provider block sets skip_credentials_validation
@@ -20,6 +34,11 @@ jobs:
       AWS_ACCESS_KEY_ID: fake
       AWS_SECRET_ACCESS_KEY: fake
       AWS_DEFAULT_REGION: us-east-1
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      # Required variable with no default by design; CI has no TTY to
+      # prompt on. RFC 5737 documentation address.
+      TF_VAR_ssh_allowed_cidr: 203.0.113.10/32
     steps:
       - uses: actions/checkout@v4
 
@@ -29,6 +48,10 @@ jobs:
 
       - name: Format check
         run: terraform fmt -check -recursive
+
+      # validate and plan both need the provider installed.
+      - name: Init
+        run: terraform init -lockfile=readonly
 
       - name: Validate
         run: terraform validate
