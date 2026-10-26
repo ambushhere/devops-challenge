@@ -1,0 +1,31 @@
+#!/bin/bash
+# Run once by cloud-init (runcmd) on first boot, after packages are installed.
+# A plain runcmd list keeps going after a failed command and still reports
+# success; as a script with -e, any failure fails cloud-init visibly
+# (`cloud-init status` -> error, details in /var/log/cloud-init-output.log).
+set -euxo pipefail
+
+# Host firewall: deny inbound by default, open only the app port.
+# SSH is also allowed, but only from the same admin CIDR as the security
+# group; without it the sudo user could never log in.
+ufw default deny incoming
+ufw default allow outgoing
+ufw allow proto tcp from ${ssh_allowed_cidr} to any port 22
+ufw allow ${port}/tcp
+ufw --force enable
+
+systemctl enable --now docker.service
+docker build --tag ${image} ${app_dir}
+
+systemctl daemon-reload
+systemctl enable --now ${container}.service
+
+# Fail the bootstrap if the app doesn't actually answer.
+for _ in $(seq 1 30); do
+  if curl -fsS "http://127.0.0.1:${port}/healthz"; then
+    exit 0
+  fi
+  sleep 2
+done
+echo "${container} did not become healthy on port ${port}" >&2
+exit 1

@@ -1,0 +1,20 @@
+[Unit]
+Description=intern-task-app container
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+# The image is built once by cloud-init and persists in Docker's storage,
+# so a reboot only has to start the container, not rebuild it.
+ExecStartPre=-/usr/bin/docker rm --force ${container}
+# --network host: the app binds port ${port} directly on the host, so the
+# host firewall (ufw) actually governs it. With -p, Docker's own iptables
+# DNAT rules would bypass ufw entirely.
+ExecStart=/usr/bin/docker run --rm --name ${container} --network host --read-only --cap-drop ALL --security-opt no-new-privileges ${image}
+ExecStop=/usr/bin/docker stop ${container}
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
